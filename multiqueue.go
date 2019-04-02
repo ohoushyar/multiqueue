@@ -15,23 +15,26 @@ const (
 
 // MultiQ data structure
 type MultiQ struct {
-	Concurrency int
-	logger      *log.Logger
-	wg          sync.WaitGroup
-	queues      []*Queue
+	Concurrency  int
+	logger       *log.Logger
+	wg           sync.WaitGroup
+	queues       []*Queue
+	qConcurUsage map[string]int
 }
 
 // Task data structure
 type Task struct {
-	Name string
-	Run  func()
+	Name      string
+	Run       func()
+	fromQName string
 }
 
 // New Constructor
 func New(opts ...Option) *MultiQ {
 	mq := &MultiQ{
-		Concurrency: defaultConcurrency,
-		logger:      log.New(os.Stderr, fmt.Sprintf("[%v] ", os.Getpid()), log.Ldate|log.Lmicroseconds),
+		Concurrency:  defaultConcurrency,
+		logger:       log.New(os.Stderr, fmt.Sprintf("[%v] ", os.Getpid()), log.Ldate|log.Lmicroseconds),
+		qConcurUsage: make(map[string]int),
 	}
 
 	for _, opt := range opts {
@@ -92,29 +95,45 @@ func (mq *MultiQ) pool() {
 	for idle < 5 {
 		allEmpty := true
 		for _, q := range mq.queues {
+
+			allEmpty = allEmpty && q.IsEmpty()
+			if allEmpty {
+				mq.dbug("all empty after checking q [%s]: %v", q.Name, allEmpty)
+				continue
+			}
+
+			mq.dbug("queue [%s] concurrency usage: [%v]", q.Name, mq.qConcurUsage[q.Name])
+			if mq.qConcurUsage[q.Name] >= q.Concurrency {
+				mq.dbug("hit the limit of concurrency [%v] for queue [%s]", q.Concurrency, q.Name)
+				continue
+			}
+
 			task, ok := q.Dequeue()
 			if !ok {
 				mq.logger.Printf("queue [%s] is empty", q.Name)
 				continue
 			}
 			mq.dbug("<- task %v dequeued", task.Name)
+			task.fromQName = q.Name
 
+			mq.qConcurUsage[q.Name]++
 			tasksCh <- task
 
-			allEmpty = false
 			idle = 0
 		}
 
 		if allEmpty {
 			mq.logger.Printf("All queues are empty, running idle [%v] ...", idle)
-			d := time.Duration(time.Duration(idle*3) * time.Second)
+			d := time.Duration(time.Duration((idle+1)*3) * time.Second)
 			time.Sleep(d)
 			idle++
+		} else {
+			time.Sleep(time.Duration(time.Duration(500) * time.Millisecond))
 		}
 	}
 
 	close(tasksCh)
-	mq.dbug("x task channel closed")
+	mq.dbug("XX task channel closed")
 }
 
 func (mq *MultiQ) worker(id int, in <-chan *Task) {
@@ -125,9 +144,10 @@ func (mq *MultiQ) worker(id int, in <-chan *Task) {
 			return
 		}
 
-		mq.dbug("-> worker %d: task %s", id, task.Name)
+		mq.dbug("-> worker %d: running task %s", id, task.Name)
 		task.Run()
-		mq.dbug("task %v done", task.Name)
+		mq.qConcurUsage[task.fromQName]--
+		mq.dbug("worker %d: task %v done", id, task.Name)
 	}
 }
 

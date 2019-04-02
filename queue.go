@@ -7,15 +7,36 @@ import (
 
 // Queue data structure
 type Queue struct {
-	Name  string
+	// Name of the queue
+	Name string
+	// Concurrency level
+	Concurrency int
+
 	tasks *list.List
 }
 
+// QOption option type
+type QOption func(*Queue)
+
 // NewQ create a new queue
-func NewQ(name string) *Queue {
-	return &Queue{
-		Name:  name,
-		tasks: list.New(),
+func NewQ(name string, opts ...QOption) *Queue {
+	q := &Queue{
+		Name:        name,
+		Concurrency: 1,
+		tasks:       list.New(),
+	}
+
+	for _, opt := range opts {
+		opt(q)
+	}
+
+	return q
+}
+
+// WithQueueConcurrency option to set concurrency level. Default: 1
+func WithQueueConcurrency(c int) QOption {
+	return func(q *Queue) {
+		q.Concurrency = c
 	}
 }
 
@@ -33,4 +54,9 @@ func (q *Queue) Dequeue() (*Task, bool) {
 	}
 
 	return q.tasks.Remove(t).(*Task), true
+}
+
+// IsEmpty true if the queue is empty
+func (q *Queue) IsEmpty() bool {
+	return q.tasks.Len() == 0
 }
