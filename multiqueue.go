@@ -19,7 +19,7 @@ type MultiQ struct {
 	logger       *log.Logger
 	wg           sync.WaitGroup
 	queues       []*Queue
-	qConcurUsage map[string]int
+	qConcurUsage sync.Map
 }
 
 // Task data structure
@@ -32,9 +32,8 @@ type Task struct {
 // New Constructor
 func New(opts ...Option) *MultiQ {
 	mq := &MultiQ{
-		Concurrency:  defaultConcurrency,
-		logger:       log.New(os.Stderr, fmt.Sprintf("[%v] ", os.Getpid()), log.Ldate|log.Lmicroseconds),
-		qConcurUsage: make(map[string]int),
+		Concurrency: defaultConcurrency,
+		logger:      log.New(os.Stderr, fmt.Sprintf("[%v] ", os.Getpid()), log.Ldate|log.Lmicroseconds),
 	}
 
 	for _, opt := range opts {
@@ -102,8 +101,13 @@ func (mq *MultiQ) pool() {
 				continue
 			}
 
-			mq.dbug("queue [%s] concurrency usage: [%v]", q.Name, mq.qConcurUsage[q.Name])
-			if mq.qConcurUsage[q.Name] >= q.Concurrency {
+			qConUse, ok := mq.qConcurUsage.Load(q.Name)
+			if !ok {
+				qConUse = 0
+			}
+
+			mq.dbug("queue [%s] concurrency usage: [%v]", q.Name, qConUse)
+			if qConUse.(int) >= q.Concurrency {
 				mq.dbug("hit the limit of concurrency [%v] for queue [%s]", q.Concurrency, q.Name)
 				continue
 			}
@@ -116,7 +120,7 @@ func (mq *MultiQ) pool() {
 			mq.dbug("<- task %v dequeued", task.Name)
 			task.fromQName = q.Name
 
-			mq.qConcurUsage[q.Name]++
+			mq.qConcurUsage.Store(q.Name, qConUse.(int)+1)
 			tasksCh <- task
 
 			idle = 0
@@ -146,8 +150,12 @@ func (mq *MultiQ) worker(id int, in <-chan *Task) {
 
 		mq.dbug("-> worker %d: running task %s", id, task.Name)
 		task.Run()
-		mq.qConcurUsage[task.fromQName]--
-		mq.dbug("worker %d: task %v done", id, task.Name)
+		qConUse, ok := mq.qConcurUsage.Load(task.fromQName)
+		if ok {
+			mq.qConcurUsage.Store(task.fromQName, qConUse.(int)-1)
+		}
+
+		mq.dbug("worker %d: task %v is done", id, task.Name)
 	}
 }
 
