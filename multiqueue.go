@@ -15,7 +15,13 @@ const (
 
 // MultiQ data structure
 type MultiQ struct {
-	Concurrency  int
+	// Concurrency level
+	Concurrency int
+	// Done use when the user is done
+	Done chan bool
+	// Resume poke the pool to go through the queues again
+	Resume chan bool
+
 	logger       *log.Logger
 	wg           sync.WaitGroup
 	queues       []*Queue
@@ -34,6 +40,8 @@ func New(opts ...Option) *MultiQ {
 	mq := &MultiQ{
 		Concurrency: defaultConcurrency,
 		logger:      log.New(os.Stderr, fmt.Sprintf("[%v] ", os.Getpid()), log.Ldate|log.Lmicroseconds),
+		Done:        make(chan bool),
+		Resume:      make(chan bool),
 	}
 
 	for _, opt := range opts {
@@ -83,15 +91,15 @@ func (mq *MultiQ) Run() {
 }
 
 func (mq *MultiQ) pool() {
-	tasksCh := make(chan *Task)
+	tasksCh := make(chan *Task, 100)
 
 	for i := 0; i < mq.Concurrency; i++ {
 		mq.dbug("+ spine up worker %v", i+1)
 		go mq.worker(i, tasksCh)
 	}
 
-	idle := 0
-	for idle < 5 {
+	for {
+		mq.dbug("--- start checking queues ---")
 		allEmpty := true
 		for _, q := range mq.queues {
 
@@ -123,21 +131,28 @@ func (mq *MultiQ) pool() {
 			mq.qConcurUsage.Store(q.Name, qConUse.(int)+1)
 			tasksCh <- task
 
-			idle = 0
 		}
 
 		if allEmpty {
-			mq.logger.Printf("All queues are empty, running idle [%v] ...", idle)
-			d := time.Duration(time.Duration((idle+1)*3) * time.Second)
-			time.Sleep(d)
-			idle++
+			mq.logger.Printf("All queues are empty, running idle ...")
+
+			select {
+			case <-mq.Done:
+				mq.dbug("===> received Done")
+				close(tasksCh)
+				mq.dbug("XX task channel closed")
+				return
+			case <-mq.Resume:
+				mq.dbug("===> received Resume")
+				d := time.Duration(1 * time.Second)
+				time.Sleep(d)
+				continue
+			}
+
 		} else {
 			time.Sleep(time.Duration(time.Duration(500) * time.Millisecond))
 		}
 	}
-
-	close(tasksCh)
-	mq.dbug("XX task channel closed")
 }
 
 func (mq *MultiQ) worker(id int, in <-chan *Task) {
