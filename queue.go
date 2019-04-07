@@ -5,11 +5,13 @@ import (
 	"log"
 )
 
+const unlimited int = -1
+
 // Queue data structure
 type Queue struct {
 	// Name of the queue
 	Name string
-	// Concurrency level
+	// Concurrency level. Default: -1 (unlimited)
 	Concurrency int
 
 	tasks   *list.List
@@ -23,7 +25,7 @@ type QOption func(*Queue)
 func NewQ(name string, opts ...QOption) *Queue {
 	q := &Queue{
 		Name:        name,
-		Concurrency: 1,
+		Concurrency: unlimited,
 		tasks:       list.New(),
 		running:     0,
 	}
