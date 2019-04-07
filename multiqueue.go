@@ -21,6 +21,8 @@ type MultiQ struct {
 	Done chan bool
 	// Resume poke the pool to go through the queues again
 	Resume chan bool
+	// Debug level, the higher the noisier. Default: 0
+	Debug int
 
 	logger *log.Logger
 	wg     sync.WaitGroup
@@ -41,6 +43,8 @@ func New(opts ...Option) *MultiQ {
 		logger:      log.New(os.Stderr, fmt.Sprintf("[%v] ", os.Getpid()), log.Ldate|log.Lmicroseconds),
 		Done:        make(chan bool),
 		Resume:      make(chan bool),
+
+		Debug: 0,
 	}
 
 	for _, opt := range opts {
@@ -67,6 +71,13 @@ func WithLogger(l *log.Logger) Option {
 	}
 }
 
+// WithDebug Sets the debug level
+func WithDebug(d int) Option {
+	return func(mq *MultiQ) {
+		mq.Debug = d
+	}
+}
+
 // AddQueue Adds a queue
 func (mq *MultiQ) AddQueue(nq *Queue) error {
 	for _, q := range mq.queues {
@@ -80,7 +91,7 @@ func (mq *MultiQ) AddQueue(nq *Queue) error {
 
 // Run Start processing the queue
 func (mq *MultiQ) Run() {
-	mq.logger.Printf("MultiQueue starts: %v\n", mq)
+	mq.dbug("MultiQueue starts running ...")
 	mq.wg.Add(mq.Concurrency)
 
 	mq.pool()
@@ -93,18 +104,18 @@ func (mq *MultiQ) pool() {
 	tasksCh := make(chan *Task, 100)
 
 	for i := 0; i < mq.Concurrency; i++ {
-		mq.dbug("+ spine up worker %v", i+1)
+		mq.dbug2("+ spine up worker %v", i+1)
 		go mq.worker(i, tasksCh)
 	}
 
 	for {
-		mq.dbug("=== start checking queues ===")
+		mq.dbug2("=== start checking queues ===")
 		allEmpty := true
 		for _, q := range mq.queues {
 
 			allEmpty = allEmpty && q.IsEmpty()
 			if allEmpty {
-				mq.dbug("all empty after checking q [%s]: %v", q.Name, allEmpty)
+				mq.dbug2("all empty after checking q [%s]: %v", q.Name, allEmpty)
 				continue
 			}
 
@@ -119,7 +130,7 @@ func (mq *MultiQ) pool() {
 		}
 
 		if allEmpty {
-			mq.logger.Printf("All queues are empty, running idle ...")
+			mq.dbug("All queues are empty, running idle ...")
 
 			select {
 			case <-mq.Done:
@@ -157,6 +168,16 @@ func (mq *MultiQ) worker(id int, in <-chan *Task) {
 }
 
 func (mq *MultiQ) dbug(format string, args ...interface{}) {
+	if mq.Debug < 1 {
+		return
+	}
 	format = "DBUG - " + format
 	mq.logger.Printf(format, args...)
+}
+
+func (mq *MultiQ) dbug2(format string, args ...interface{}) {
+	if mq.Debug < 2 {
+		return
+	}
+	mq.dbug(format, args...)
 }
