@@ -9,7 +9,7 @@ import (
 
 const unlimited int = -1
 
-// Queue data structure
+// Queue is the queue which uses by MultiQ.
 type Queue struct {
 	// Name of the queue
 	Name string
@@ -23,10 +23,10 @@ type Queue struct {
 	logger  *log.Logger
 }
 
-// QOption option type
+// QOption Queue option.
 type QOption func(*Queue)
 
-// NewQ create a new queue
+// NewQ create a new queue.
 func NewQ(name string, opts ...QOption) *Queue {
 	q := &Queue{
 		Name:        name,
@@ -45,28 +45,28 @@ func NewQ(name string, opts ...QOption) *Queue {
 	return q
 }
 
-// WithQueueConcurrency option to set concurrency level. Default: 1
+// WithQueueConcurrency set concurrency level of Queue.
 func WithQueueConcurrency(c int) QOption {
 	return func(q *Queue) {
 		q.Concurrency = c
 	}
 }
 
-// WithQueueLogger Sets the logger
+// WithQueueLogger set the logger.
 func WithQueueLogger(l *log.Logger) QOption {
 	return func(q *Queue) {
 		q.logger = l
 	}
 }
 
-// WithQueueDebug Sets the debug level
+// WithQueueDebug set the debug level of Queue.
 func WithQueueDebug(d int) QOption {
 	return func(q *Queue) {
 		q.Debug = d
 	}
 }
 
-// Enqueue add task to queue
+// Enqueue a task.
 func (q *Queue) Enqueue(t *Task) {
 	q.tasks.PushBack(t)
 	t.queue = q
@@ -74,7 +74,7 @@ func (q *Queue) Enqueue(t *Task) {
 	q.dbug("enqueued task [%s] -> [%v]: length: %v", t.Name, q.Name, q.tasks.Len())
 }
 
-// Dequeue remove the task from queue
+// Dequeue a task from queue. If the concurrency set, it only dequeue if there are no more than concurrency level jobs running. Returns false either the queue is empty or the concurrency hit the limit.
 func (q *Queue) Dequeue() (*Task, bool) {
 
 	if q.Concurrency > 0 && q.running >= q.Concurrency {
@@ -97,12 +97,12 @@ func (q *Queue) IsEmpty() bool {
 	return q.tasks.Len() == 0
 }
 
-// IncRun increment running
+// IncRun increment the number of running jobs.
 func (q *Queue) IncRun() {
 	q.running++
 }
 
-// DecRun decrement running
+// DecRun decrement the number of running jobs.
 func (q *Queue) DecRun() {
 	q.running--
 }

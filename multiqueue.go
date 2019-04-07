@@ -1,4 +1,12 @@
+// Package multiqueue is a multiqueue job processor with two level of concurrency, worker and queue.
+// Worker concurrency defines the number of workers, which process tasks.
+// Queue concurrency defines how many concurrent tasks can run from the queue.
 package multiqueue
+
+// TODO:
+// - halt / shutdown
+// - signal handling
+//
 
 import (
 	"fmt"
@@ -13,13 +21,13 @@ const (
 	defaultConcurrency = 10
 )
 
-// MultiQ data structure
+// MultiQ is the multiqueue job processor.
 type MultiQ struct {
 	// Concurrency level
 	Concurrency int
-	// Done use when the user is done
+	// Done channel use when the user is done
 	Done chan bool
-	// Resume poke the pool to go through the queues again
+	// Resume channel to poke the pool to go through the queues again
 	Resume chan bool
 	// Debug level, the higher the noisier. Default: 0
 	Debug int
@@ -29,14 +37,14 @@ type MultiQ struct {
 	queues []*Queue
 }
 
-// Task data structure
+// Task is the job to run by MultiQ.
 type Task struct {
 	Name  string
 	Run   func()
 	queue *Queue
 }
 
-// New Constructor
+// New constructor of MultiQ
 func New(opts ...Option) *MultiQ {
 	mq := &MultiQ{
 		Concurrency: defaultConcurrency,
@@ -54,31 +62,31 @@ func New(opts ...Option) *MultiQ {
 	return mq
 }
 
-// Option MultiQ options type
+// Option MultiQ option
 type Option func(*MultiQ)
 
-// WithConcurrency Sets the concurrency
+// WithConcurrency set the concurrency level in MultiQ
 func WithConcurrency(c int) Option {
 	return func(mq *MultiQ) {
 		mq.Concurrency = c
 	}
 }
 
-// WithLogger Sets the logger
+// WithLogger set the logger for MultiQ
 func WithLogger(l *log.Logger) Option {
 	return func(mq *MultiQ) {
 		mq.logger = l
 	}
 }
 
-// WithDebug Sets the debug level
+// WithDebug set the debug level in MultiQ
 func WithDebug(d int) Option {
 	return func(mq *MultiQ) {
 		mq.Debug = d
 	}
 }
 
-// AddQueue Adds a queue
+// AddQueue add a queue
 func (mq *MultiQ) AddQueue(nq *Queue) error {
 	for _, q := range mq.queues {
 		if strings.Compare(nq.Name, q.Name) == 0 {
@@ -89,7 +97,7 @@ func (mq *MultiQ) AddQueue(nq *Queue) error {
 	return nil
 }
 
-// Run Start processing the queue
+// Run start processing queues. Spins up workers based on concurrency level and goes through the queues to process the given jobs.
 func (mq *MultiQ) Run() {
 	mq.dbug("MultiQueue starts running ...")
 	mq.wg.Add(mq.Concurrency)
@@ -100,6 +108,10 @@ func (mq *MultiQ) Run() {
 	mq.dbug("Run is done")
 }
 
+// pool checks all the queues and pull a job to process and pass it workers.
+// After all queues get empty, pool listens to two channels:
+//     Done: stops the pool after all jobs done
+//     Resume: starts the pool to check the queues again
 func (mq *MultiQ) pool() {
 	tasksCh := make(chan *Task, 100)
 
