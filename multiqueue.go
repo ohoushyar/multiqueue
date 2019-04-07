@@ -98,7 +98,7 @@ func (mq *MultiQ) pool() {
 	}
 
 	for {
-		mq.dbug("--- start checking queues ---")
+		mq.dbug("=== start checking queues ===")
 		allEmpty := true
 		for _, q := range mq.queues {
 
@@ -123,19 +123,19 @@ func (mq *MultiQ) pool() {
 
 			select {
 			case <-mq.Done:
-				mq.dbug("===> received Done")
+				mq.dbug("==> received Done")
 				close(tasksCh)
 				mq.dbug("XX task channel closed")
 				return
 			case <-mq.Resume:
-				mq.dbug("===> received Resume")
+				mq.dbug("==> received Resume")
 				d := time.Duration(1 * time.Second)
 				time.Sleep(d)
 				continue
 			}
 
 		} else {
-			time.Sleep(time.Duration(time.Duration(500) * time.Millisecond))
+			time.Sleep(time.Duration(time.Duration(300) * time.Millisecond))
 		}
 	}
 }
