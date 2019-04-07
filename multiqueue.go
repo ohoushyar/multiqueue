@@ -22,17 +22,16 @@ type MultiQ struct {
 	// Resume poke the pool to go through the queues again
 	Resume chan bool
 
-	logger       *log.Logger
-	wg           sync.WaitGroup
-	queues       []*Queue
-	qConcurUsage sync.Map
+	logger *log.Logger
+	wg     sync.WaitGroup
+	queues []*Queue
 }
 
 // Task data structure
 type Task struct {
-	Name      string
-	Run       func()
-	fromQName string
+	Name  string
+	Run   func()
+	queue *Queue
 }
 
 // New Constructor
@@ -109,26 +108,12 @@ func (mq *MultiQ) pool() {
 				continue
 			}
 
-			qConUse, ok := mq.qConcurUsage.Load(q.Name)
-			if !ok {
-				qConUse = 0
-			}
-
-			mq.dbug("queue [%s] concurrency usage: [%v]", q.Name, qConUse)
-			if qConUse.(int) >= q.Concurrency {
-				mq.dbug("hit the limit of concurrency [%v] for queue [%s]", q.Concurrency, q.Name)
-				continue
-			}
-
 			task, ok := q.Dequeue()
 			if !ok {
-				mq.logger.Printf("queue [%s] is empty", q.Name)
 				continue
 			}
 			mq.dbug("<- task %v dequeued", task.Name)
-			task.fromQName = q.Name
 
-			mq.qConcurUsage.Store(q.Name, qConUse.(int)+1)
 			tasksCh <- task
 
 		}
@@ -165,10 +150,7 @@ func (mq *MultiQ) worker(id int, in <-chan *Task) {
 
 		mq.dbug("-> worker %d: running task %s", id, task.Name)
 		task.Run()
-		qConUse, ok := mq.qConcurUsage.Load(task.fromQName)
-		if ok {
-			mq.qConcurUsage.Store(task.fromQName, qConUse.(int)-1)
-		}
+		task.queue.DecRun()
 
 		mq.dbug("worker %d: task %v is done", id, task.Name)
 	}
