@@ -115,6 +115,7 @@ func (mq *MultiQ) Run() {
 func (mq *MultiQ) pool() {
 	tasksCh := make(chan *Task, 100)
 
+	mq.dbug("spinning up %v workers ...", mq.Concurrency)
 	for i := 0; i < mq.Concurrency; i++ {
 		mq.dbug2("+ spine up worker %v", i+1)
 		go mq.worker(i, tasksCh)
