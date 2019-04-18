@@ -173,7 +173,10 @@ func (mq *MultiQ) worker(id int, in <-chan *Task) {
 
 		mq.dbug("-> worker %d: running task %s", id, task.Name)
 		task.Run()
+
+		task.queue.Lock()
 		task.queue.DecRun()
+		task.queue.Unlock()
 
 		mq.dbug("worker %d: task %v is done", id, task.Name)
 	}

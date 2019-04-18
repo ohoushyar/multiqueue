@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
+	"sync/atomic"
 )
 
 const unlimited int = -1
@@ -19,8 +21,10 @@ type Queue struct {
 	Debug int
 
 	tasks   *list.List
-	running int
+	running int32
 	logger  *log.Logger
+
+	sync.Mutex
 }
 
 // QOption Queue option.
@@ -68,16 +72,20 @@ func WithQueueDebug(d int) QOption {
 
 // Enqueue a task.
 func (q *Queue) Enqueue(t *Task) {
-	q.tasks.PushBack(t)
-	t.queue = q
+	defer q.Unlock()
+	q.Lock()
 
+	t.queue = q
+	q.tasks.PushBack(t)
 	q.dbug("enqueued task [%s] -> [%v]: length: %v", t.Name, q.Name, q.tasks.Len())
 }
 
 // Dequeue a task from queue. If the concurrency set, it only dequeue if there are no more than concurrency level jobs running. Returns false either the queue is empty or the concurrency hit the limit.
 func (q *Queue) Dequeue() (*Task, bool) {
+	defer q.Unlock()
+	q.Lock()
 
-	if q.Concurrency > 0 && q.running >= q.Concurrency {
+	if q.Concurrency > 0 && int(q.running) >= q.Concurrency {
 		q.dbug2("hit the limit of concurrency [%v] for queue [%s]", q.Concurrency, q.Name)
 		return nil, false
 	}
@@ -87,24 +95,28 @@ func (q *Queue) Dequeue() (*Task, bool) {
 		return nil, false
 	}
 
-	q.IncRun()
+	q.incRun()
+	tsk := q.tasks.Remove(t).(*Task)
 
-	return q.tasks.Remove(t).(*Task), true
+	return tsk, true
 }
 
 // IsEmpty true if the queue is empty
 func (q *Queue) IsEmpty() bool {
-	return q.tasks.Len() == 0
+	q.Lock()
+	res := q.tasks.Len() == 0
+	q.Unlock()
+
+	return res
 }
 
-// IncRun increment the number of running jobs.
-func (q *Queue) IncRun() {
-	q.running++
+func (q *Queue) incRun() {
+	atomic.AddInt32(&q.running, 1)
 }
 
 // DecRun decrement the number of running jobs.
 func (q *Queue) DecRun() {
-	q.running--
+	atomic.AddInt32(&q.running, -1)
 }
 
 func (q *Queue) dbug(format string, args ...interface{}) {
